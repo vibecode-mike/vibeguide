@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +35,6 @@ interface ProjectData {
 
 interface DocumentGenerationStepProps {
   data: ProjectData;
-  onUpdate: (updates: Partial<ProjectData>) => void;
   onPrevious: () => void;
 }
 
@@ -107,11 +106,12 @@ const generateDocuments = async (projectDescription: string, requirements: { que
   }
 };
 
-export function DocumentGenerationStep({ data, onUpdate, onPrevious }: DocumentGenerationStepProps) {
+export function DocumentGenerationStep({ data, onPrevious }: DocumentGenerationStepProps) {
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState("user-journey");
   const [isSaving, setIsSaving] = useState(false);
+  const isMountedRef = useRef(true);
   const router = useRouter();
 
   // Initialize documents
@@ -129,43 +129,73 @@ export function DocumentGenerationStep({ data, onUpdate, onPrevious }: DocumentG
     if (documents.length > 0 && !isGenerating && documents.every(doc => doc.status === "pending")) {
       generateAllDocuments();
     }
-  }, [documents, isGenerating]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documents.length, isGenerating]);
 
-  const generateAllDocuments = async () => {
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const generateAllDocuments = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     setIsGenerating(true);
     
     try {
       // Generate all documents using AI API
       const generatedDocs = await generateDocuments(data.description, data.requirements);
       
-      // Map the generated documents to our document structure
-      setDocuments(prev => prev.map((doc, index) => ({
-        ...doc,
-        status: "completed",
-        content: generatedDocs[index]?.content || "Document generation failed."
-      })));
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        // Map the generated documents to our document structure
+        setDocuments(prev => prev.map((doc, index) => ({
+          ...doc,
+          status: "completed",
+          content: generatedDocs[index]?.content || "Document generation failed."
+        })));
+      }
       
     } catch (error) {
       console.error("Failed to generate documents:", error);
       
-      // Set error status for all documents
-      setDocuments(prev => prev.map(doc => ({
-        ...doc,
-        status: "error"
-      })));
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        // Set error status for all documents
+        setDocuments(prev => prev.map(doc => ({
+          ...doc,
+          status: "error"
+        })));
+      }
     } finally {
-      setIsGenerating(false);
+      if (isMountedRef.current) {
+        setIsGenerating(false);
+      }
     }
-  };
+  }, [data.description, data.requirements]);
 
   const handleSaveProject = async () => {
+    if (!isMountedRef.current) return;
+    
     setIsSaving(true);
     
-    // Simulate saving to database
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsSaving(false);
-    router.push("/projects");
+    try {
+      // Simulate saving to database
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      if (isMountedRef.current) {
+        router.push("/projects");
+      }
+    } catch (error) {
+      console.error("Failed to save project:", error);
+    } finally {
+      if (isMountedRef.current) {
+        setIsSaving(false);
+      }
+    }
   };
 
   const handleDownload = (documentId: string) => {
@@ -176,10 +206,23 @@ export function DocumentGenerationStep({ data, onUpdate, onPrevious }: DocumentG
       const a = document.createElement("a");
       a.href = url;
       a.download = `${doc.title.toLowerCase().replace(/\s+/g, "-")}.md`;
+      
+      // Use a more robust approach to handle the download
+      a.style.display = "none";
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      
+      // Clean up safely
+      setTimeout(() => {
+        try {
+          if (a.parentNode) {
+            document.body.removeChild(a);
+          }
+          URL.revokeObjectURL(url);
+        } catch (error) {
+          console.warn("Failed to clean up download link:", error);
+        }
+      }, 100);
     }
   };
 

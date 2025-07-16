@@ -72,7 +72,7 @@ export function FeaturesSection() {
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             Generate comprehensive development documentation with AI assistance. 
-            From concept to implementation, we've got you covered.
+            From concept to implementation, we&apos;ve got you covered.
           </p>
         </div>
         
